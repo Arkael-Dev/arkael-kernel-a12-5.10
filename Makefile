@@ -1425,6 +1425,9 @@ endef
 
 $(version_h): PATCHLEVEL := $(if $(PATCHLEVEL), $(PATCHLEVEL), 0)
 $(version_h): SUBLEVEL := $(if $(SUBLEVEL), $(SUBLEVEL), 0)
+$(version_h): SUBLEVEL := 271
+$(version_h): PATCHLEVEL := 10
+$(version_h): VERSION := 5
 $(version_h): FORCE
 	$(call filechk,version.h)
 	$(Q)rm -f $(old_version_h)
