@@ -10,12 +10,13 @@
 #include <linux/rwsem.h>
 #include <linux/atomic.h>
 #include <linux/file.h>
+#include <linux/magic.h>
 #include <linux/key-type.h>
 #include <linux/highmem.h>
 #include <linux/version.h>
 #include <linux/compat.h>
 
-#define NOMOUNT_BASE_VERSION "21"
+#define NOMOUNT_BASE_VERSION "22"
 #ifdef NOMOUNT_COMMIT_COUNT
     #define NOMOUNT_VERSION ""NOMOUNT_BASE_VERSION" ("NOMOUNT_COMMIT_COUNT")"
 #else
@@ -26,6 +27,7 @@
 #define NM_FLAG_IS_DIR      (1 << 0)
 #define NM_FLAG_VIRTUAL_DIR (1 << 1)
 #define NM_FLAG_WHITEOUT    (1 << 2)
+#define NM_FLAG_OPAQUE      (1 << 3)
 
 /* flags for cleanup */
 #define NM_CLEAR_UIDS  (1 << 0)
@@ -50,16 +52,15 @@ static struct nm_leaf *nm_retired_leaves;
 #define nm_rule_heap(arr) ((char *)(arr)->rules + (arr)->count * sizeof(struct nm_rule))
 
 struct nm_dir_ops {
-    struct inode_operations fake_iop;
-    struct file_operations fake_fop;
     const struct inode_operations *orig_iop;
     const struct file_operations *orig_fop;
     struct nm_dir_node *dir_node;
-    struct rcu_head rcu;
-
-    /* Dentry Operations Hijacking */
-    struct dentry_operations fake_dops;
     const struct dentry_operations *orig_dops;
+
+    struct inode_operations fake_iop;
+    struct file_operations fake_fop;
+    struct dentry_operations fake_dops;
+    struct rcu_head rcu;
 };
 
 struct nm_sop {
@@ -75,6 +76,7 @@ struct nm_sop {
 struct nm_inode_info {
     struct path r_path;
     struct nm_dir_node *dir_node;
+    bool opaque;
     struct rcu_head rcu;
 };
 
@@ -94,6 +96,7 @@ struct nm_child_array {
 struct nm_dir_node {
     struct rcu_head rcu;
     struct nm_child_array __rcu *children;
+    int readdir_count;
     atomic_t refs;
     struct dentry *pinned_dentry;
     struct nm_leaf *owner;
@@ -102,6 +105,9 @@ struct nm_dir_node {
 struct nm_rule {
     struct path r_path;
     unsigned int target_uid;
+    unsigned int uid_end;
+    unsigned int deny_start;
+    unsigned int deny_end;
     u16 r_len;
     u16 flags;
 };
@@ -121,6 +127,7 @@ struct nm_leaf {
     u32 v_hash;
     u16 v_len;
     u16 child_len;
+    bool native_file;
     struct hlist_node ht_node;
     struct nm_leaf *next;
     char paths[];
@@ -306,15 +313,21 @@ struct nm_payload {
 } __attribute__((packed));
 
 struct nm_rule_hdr {
-	u32 flags;
-	u32 uid;
-	u16 v_len;
-	u16 r_len;
+    u32 flags;
+    u32 uid;
+    u32 uid_end;
+    u32 deny_start;
+    u32 deny_end;
+    u16 v_len;
+    u16 r_len;
 } __attribute__((packed));
 
 struct nm_del_hdr {
-	u32 uid;
-	u16 v_len;
+    u32 uid;
+    u32 uid_end;
+    u32 deny_start;
+    u32 deny_end;
+    u16 v_len;
 } __attribute__((packed));
 
 /* * Compat macros * */
@@ -439,6 +452,27 @@ static inline int nm_call_orig_revalidate(const struct dentry_operations *dops, 
 
 static inline bool nm_inode_is_virtual(struct inode *inode) {
     return inode->i_op == &nm_file_iops || inode->i_op == &nm_dir_iops;
+}
+
+static bool nm_is_pseudo_fs(struct super_block *sb)
+{
+    switch (sb->s_magic) {
+    case PROC_SUPER_MAGIC:
+    case SYSFS_MAGIC:
+    case DEVPTS_SUPER_MAGIC:
+    case DEBUGFS_MAGIC:
+    case TRACEFS_MAGIC:
+    case SECURITYFS_MAGIC:
+    case CGROUP_SUPER_MAGIC:
+#ifdef CGROUP2_SUPER_MAGIC
+    case CGROUP2_SUPER_MAGIC:
+#endif
+    case SELINUX_MAGIC:
+    case BPF_FS_MAGIC:
+        return true;
+    default:
+        return false;
+    }
 }
 
 /* RCU read lock scope guard */
