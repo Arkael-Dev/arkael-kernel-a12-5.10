@@ -4261,7 +4261,7 @@ static bool sort_page(struct lruvec *lruvec, struct page *page, struct scan_cont
 		success = lru_gen_del_page(lruvec, page, true);
 		VM_WARN_ON_ONCE_PAGE(!success, page);
 		SetPageUnevictable(page);
-		add_page_to_lru_list(page, lruvec);
+		add_page_to_lru_list(page, lruvec, page_lru(page));
 		__count_vm_events(UNEVICTABLE_PGCULLED, delta);
 		return true;
 	}
@@ -4271,7 +4271,7 @@ static bool sort_page(struct lruvec *lruvec, struct page *page, struct scan_cont
 		success = lru_gen_del_page(lruvec, page, true);
 		VM_WARN_ON_ONCE_PAGE(!success, page);
 		SetPageSwapBacked(page);
-		add_page_to_lru_list_tail(page, lruvec);
+		add_page_to_lru_list_tail(page, lruvec, page_lru(page));
 		return true;
 	}
 
@@ -4796,7 +4796,7 @@ static bool fill_evictable(struct lruvec *lruvec)
 			VM_WARN_ON_ONCE_PAGE(page_is_file_lru(page) != type, page);
 			VM_WARN_ON_ONCE_PAGE(page_lru_gen(page) != -1, page);
 
-			del_page_from_lru_list(page, lruvec);
+			del_page_from_lru_list(page, lruvec, page_lru(page));
 			success = lru_gen_add_page(lruvec, page, false);
 			VM_WARN_ON_ONCE(!success);
 
@@ -4827,7 +4827,7 @@ static bool drain_evictable(struct lruvec *lruvec)
 
 			success = lru_gen_del_page(lruvec, page, false);
 			VM_WARN_ON_ONCE(!success);
-			add_page_to_lru_list(page, lruvec);
+			add_page_to_lru_list(page, lruvec, page_lru(page));
 
 			if (!--remaining)
 				return false;
