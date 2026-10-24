@@ -1544,6 +1544,11 @@ static int l2cap_sock_recv_cb(struct l2cap_chan *chan, struct sk_buff *skb)
 	struct l2cap_pinfo *pi = l2cap_pi(sk);
 	int err;
 
+	sk = chan->data;
+	if (!sk)
+		return -ENXIO;
+
+	pi = l2cap_pi(sk);
 	lock_sock(sk);
 
 	if (chan->mode == L2CAP_MODE_ERTM && !list_empty(&pi->rx_busy)) {
