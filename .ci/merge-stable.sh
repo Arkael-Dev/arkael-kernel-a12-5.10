@@ -80,5 +80,11 @@ if git grep -n -E '^(<<<<<<<|>>>>>>>) ' -- '*.c' '*.h' '*.S' 'Makefile' '*Kconfi
 fi
 
 git add -u
-git commit -q -m "Merge $LABEL ($(git rev-parse --short=12 "$TAG^{commit}")) into $BRANCH" || exit 1
+SHA="$(git rev-parse --short=12 "$TAG^{commit}")"
+VER="$(git show "$TAG:Makefile" | head -5 | awk '/^VERSION =/{v=$3} /^PATCHLEVEL =/{p=$3} /^SUBLEVEL =/{s=$3} END{print v"."p"."s}')"
+COUNT="$(git rev-list --count HEAD..MERGE_HEAD)"
+git commit -q \
+  -m "Merge $LABEL: update to Linux $VER ($SHA)" \
+  -m "Merge Google $LABEL (Linux $VER, $SHA) into $BRANCH. $COUNT new upstream commits." \
+  || exit 1
 git log --oneline -1

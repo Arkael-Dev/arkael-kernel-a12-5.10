@@ -90,8 +90,8 @@ jobs:
           b="${{ steps.detect.outputs.branch }}"
           git push origin "HEAD:refs/heads/$b"
           gh pr create --base "$BASE" --head "$b" \
-            --title "Merge $UPSTREAM_BRANCH (5.10.${{ steps.detect.outputs.up }})" \
-            --body "Not built yet. Wait for tester." || true
+            --title "Update to Google $UPSTREAM_BRANCH (Linux 5.10.${{ steps.detect.outputs.up }})" \
+            --body "Merge Google $UPSTREAM_BRANCH, Linux 5.10.${{ steps.detect.outputs.up }} (${{ steps.detect.outputs.sha }}), into $BASE. Not built yet. Wait for tester." || true
 
       - name: open issue on conflicts
         if: steps.detect.outputs.go == 'true' && steps.merge.outputs.rc == '10'
