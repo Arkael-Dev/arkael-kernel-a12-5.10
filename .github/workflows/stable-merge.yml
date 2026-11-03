@@ -20,16 +20,27 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  BASE: bore-bbrv3-5.10
   UPSTREAM: https://android.googlesource.com/kernel/common
   UPSTREAM_BRANCH: android12-5.10-lts
-  KEEP_BRANCHES: arkael-linux-stable bore-bbrv3-5.10 arkael-bore arkael-bore-lts-merge
   AUTO_RESOLVE: ours
 
 jobs:
   merge:
+    name: merge ${{ matrix.base }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - base: bore-bbrv3-5.10
+          - base: arkael-bore
+          # real Linux stable tree: don't force SUBLEVEL down to Google's
+          - base: arkael-linux-stable
+            keep_sublevel: "1"
+    env:
+      BASE: ${{ matrix.base }}
+      KEEP_SUBLEVEL: ${{ matrix.keep_sublevel }}
     steps:
       # one cheap look at Google's tip; the cache remembers which tips were already handled
       - name: check Google tip
@@ -46,7 +57,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: .seen
-          key: google-seen-${{ steps.tip.outputs.sha }}
+          key: google-seen-${{ steps.tip.outputs.sha }}-${{ matrix.base }}
 
       # scripts come from the default branch, so BASE doesn't need them
       - uses: actions/checkout@v4
@@ -64,17 +75,10 @@ jobs:
           fetch-tags: false
           filter: blob:none
 
-      - name: fetch branches
+      - name: fetch full history of BASE
         if: (steps.seen.outputs.cache-hit != 'true' || inputs.force == true)
         working-directory: src
-        run: |
-          # BASE: full history (needed for the merge)
-          git fetch --no-tags --filter=blob:none --unshallow origin "+refs/heads/$BASE:refs/remotes/origin/$BASE"
-          # the rest: best effort, missing branches are skipped
-          for b in $KEEP_BRANCHES; do
-            [ "$b" = "$BASE" ] && continue
-            git fetch --no-tags --filter=blob:none origin "+refs/heads/$b:refs/remotes/origin/$b" || echo "skip: $b not found"
-          done
+        run: git fetch --no-tags --filter=blob:none --unshallow origin "+refs/heads/$BASE:refs/remotes/origin/$BASE"
 
       - name: detect new commits from Google
         if: (steps.seen.outputs.cache-hit != 'true' || inputs.force == true)
@@ -126,7 +130,7 @@ jobs:
             const short = process.env.SHA.slice(0, 12);
             await github.rest.issues.create({
               ...context.repo,
-              title: `review: ${process.env.UPSTREAM_BRANCH} 5.10.${process.env.UP} (${short}) merged, conflicts auto-resolved`,
+              title: `review: ${process.env.UPSTREAM_BRANCH} 5.10.${process.env.UP} (${short}) merged into ${process.env.BASE}, conflicts auto-resolved`,
               body: `Merged into ${process.env.BASE}. These files had conflicts and were auto-resolved with \`${process.env.AUTO_RESOLVE}\`:\n\n${files}\n`,
             });
 
@@ -142,12 +146,12 @@ jobs:
             const short = process.env.SHA.slice(0, 12);
             const q = `repo:${context.repo.owner}/${context.repo.repo} is:issue in:title ${short}`;
             const found = await github.rest.search.issuesAndPullRequests({ q });
-            if (found.data.total_count > 0) return;
+            if (found.data.items.some(i => i.title.includes(process.env.BASE))) return;
             const log = fs.readFileSync('merge.log', 'utf8');
             const m = log.match(/conflicts left[\s\S]*?(?=\nresolve|$)/);
             await github.rest.issues.create({
               ...context.repo,
-              title: `merge ${process.env.UPSTREAM_BRANCH} 5.10.${process.env.UP} (${short}) has conflicts`,
+              title: `merge ${process.env.UPSTREAM_BRANCH} 5.10.${process.env.UP} (${short}) into ${process.env.BASE} has conflicts`,
               body: '```\n' + (m ? m[0] : log.slice(-2000)) + '\n```',
             });
 
