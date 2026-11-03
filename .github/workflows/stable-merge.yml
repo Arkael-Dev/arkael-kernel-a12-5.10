@@ -2,8 +2,13 @@ name: stable-merge
 
 on:
   schedule:
-    - cron: "0 */6 * * *"
+    - cron: "17 * * * *"   # cheap check (~10s when Google has nothing new)
   workflow_dispatch:
+    inputs:
+      force:
+        description: "run even if this Google commit was already handled"
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -18,7 +23,7 @@ env:
   BASE: bore-bbrv3-5.10
   UPSTREAM: https://android.googlesource.com/kernel/common
   UPSTREAM_BRANCH: android12-5.10-lts
-  KEEP_BRANCHES: arkael-linux-stable bore-bbrv3-5.10 arkael-bore test-5.10.273 arkael-bore-lts-merge
+  KEEP_BRANCHES: arkael-linux-stable bore-bbrv3-5.10 arkael-bore arkael-bore-lts-merge
   AUTO_RESOLVE: ours
 
 jobs:
@@ -26,13 +31,32 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
+      # one cheap look at Google's tip; the cache remembers which tips were already handled
+      - name: check Google tip
+        id: tip
+        run: |
+          g=$(git ls-remote "$UPSTREAM" "refs/heads/$UPSTREAM_BRANCH" | cut -f1)
+          [ -n "$g" ] || { echo "cannot read $UPSTREAM_BRANCH"; exit 1; }
+          echo "Google $UPSTREAM_BRANCH tip: $g"
+          mkdir -p .seen && echo "$g" > .seen/sha
+          echo "sha=$g" >> "$GITHUB_OUTPUT"
+
+      - name: already handled?
+        id: seen
+        uses: actions/cache@v4
+        with:
+          path: .seen
+          key: google-seen-${{ steps.tip.outputs.sha }}
+
       # scripts come from the default branch, so BASE doesn't need them
       - uses: actions/checkout@v4
+        if: (steps.seen.outputs.cache-hit != 'true' || inputs.force == true)
         with:
           path: ci
           sparse-checkout: .ci
 
       - uses: actions/checkout@v4
+        if: (steps.seen.outputs.cache-hit != 'true' || inputs.force == true)
         with:
           ref: ${{ env.BASE }}
           path: src
@@ -41,6 +65,7 @@ jobs:
           filter: blob:none
 
       - name: fetch branches
+        if: (steps.seen.outputs.cache-hit != 'true' || inputs.force == true)
         working-directory: src
         run: |
           # BASE: full history (needed for the merge)
@@ -52,6 +77,7 @@ jobs:
           done
 
       - name: detect new commits from Google
+        if: (steps.seen.outputs.cache-hit != 'true' || inputs.force == true)
         id: detect
         working-directory: src
         run: |
@@ -71,7 +97,7 @@ jobs:
       # merges straight into BASE (no test branch, no PR)
       - name: merge
         id: merge
-        if: steps.detect.outputs.go == 'true'
+        if: (steps.seen.outputs.cache-hit != 'true' || inputs.force == true) && (steps.detect.outputs.go == 'true')
         working-directory: src
         run: |
           git config user.name  "github-actions[bot]"
@@ -82,12 +108,12 @@ jobs:
           exit 0
 
       - name: push to BASE
-        if: steps.detect.outputs.go == 'true' && (steps.merge.outputs.rc == '0' || steps.merge.outputs.rc == '11')
+        if: (steps.seen.outputs.cache-hit != 'true' || inputs.force == true) && (steps.detect.outputs.go == 'true' && (steps.merge.outputs.rc == '0' || steps.merge.outputs.rc == '11'))
         working-directory: src
         run: git push origin "HEAD:refs/heads/$BASE"
 
       - name: issue to review auto-resolved conflicts
-        if: steps.detect.outputs.go == 'true' && steps.merge.outputs.rc == '11'
+        if: (steps.seen.outputs.cache-hit != 'true' || inputs.force == true) && (steps.detect.outputs.go == 'true' && steps.merge.outputs.rc == '11')
         uses: actions/github-script@v7
         env:
           UP: ${{ steps.detect.outputs.up }}
@@ -105,7 +131,7 @@ jobs:
             });
 
       - name: issue on unresolved conflicts
-        if: steps.detect.outputs.go == 'true' && steps.merge.outputs.rc == '10'
+        if: (steps.seen.outputs.cache-hit != 'true' || inputs.force == true) && (steps.detect.outputs.go == 'true' && steps.merge.outputs.rc == '10')
         uses: actions/github-script@v7
         env:
           UP: ${{ steps.detect.outputs.up }}
@@ -126,5 +152,5 @@ jobs:
             });
 
       - name: fail on unexpected error
-        if: steps.merge.outputs.rc != '' && steps.merge.outputs.rc != '0' && steps.merge.outputs.rc != '10' && steps.merge.outputs.rc != '11'
+        if: (steps.seen.outputs.cache-hit != 'true' || inputs.force == true) && (steps.merge.outputs.rc != '' && steps.merge.outputs.rc != '0' && steps.merge.outputs.rc != '10' && steps.merge.outputs.rc != '11')
         run: exit 1
