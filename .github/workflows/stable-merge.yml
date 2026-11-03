@@ -18,6 +18,7 @@ env:
   BASE: bore-bbrv3-5.10
   UPSTREAM: https://android.googlesource.com/kernel/common
   UPSTREAM_BRANCH: android12-5.10-lts
+  KEEP_BRANCHES: arkael-linux-stable bore-bbrv3-5.10 arkael-bore test-5.10.273 arkael-bore-lts-merge
   GH_TOKEN: ${{ github.token }}
 
 jobs:
@@ -39,9 +40,14 @@ jobs:
           fetch-tags: false
           filter: blob:none
 
-      - name: fetch full history of BASE only
+      - name: fetch only the branches we use
         working-directory: src
-        run: git fetch --no-tags --filter=blob:none --unshallow origin "$BASE"
+        run: |
+          args=()
+          for b in $KEEP_BRANCHES; do
+            args+=("+refs/heads/$b:refs/remotes/origin/$b")
+          done
+          git fetch --no-tags --filter=blob:none --unshallow origin "${args[@]}"
 
       - name: detect new release
         id: detect
