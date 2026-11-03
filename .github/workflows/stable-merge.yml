@@ -19,6 +19,7 @@ env:
   UPSTREAM: https://android.googlesource.com/kernel/common
   UPSTREAM_BRANCH: android12-5.10-lts
   KEEP_BRANCHES: arkael-linux-stable bore-bbrv3-5.10 arkael-bore test-5.10.273 arkael-bore-lts-merge
+  AUTO_RESOLVE: ours
   GH_TOKEN: ${{ github.token }}
 
 jobs:
@@ -84,14 +85,22 @@ jobs:
           exit 0
 
       - name: push and open PR
-        if: steps.detect.outputs.go == 'true' && steps.merge.outputs.rc == '0'
+        if: steps.detect.outputs.go == 'true' && (steps.merge.outputs.rc == '0' || steps.merge.outputs.rc == '11')
         working-directory: src
         run: |
           b="${{ steps.detect.outputs.branch }}"
+          up="${{ steps.detect.outputs.up }}"
           git push origin "HEAD:refs/heads/$b"
-          gh pr create --base "$BASE" --head "$b" \
-            --title "Update to Google $UPSTREAM_BRANCH (Linux 5.10.${{ steps.detect.outputs.up }})" \
-            --body "Merge Google $UPSTREAM_BRANCH, Linux 5.10.${{ steps.detect.outputs.up }} (${{ steps.detect.outputs.sha }}), into $BASE. Not built yet. Wait for tester." || true
+          title="Update to Google $UPSTREAM_BRANCH (Linux 5.10.$up)"
+          body="Merge Google $UPSTREAM_BRANCH, Linux 5.10.$up (${{ steps.detect.outputs.sha }}), into $BASE. Not built yet. Wait for tester."
+          draft=()
+          if [ "${{ steps.merge.outputs.rc }}" = "11" ]; then
+            files=$(grep '^auto-resolved: ' ../merge.log | sed 's/^auto-resolved: /- /')
+            body="$body"$'\n\n'"Conflicts auto-resolved with '$AUTO_RESOLVE' (review before merging):"$'\n'"$files"
+            title="$title [conflicts auto-resolved]"
+            draft=(--draft)
+          fi
+          gh pr create --base "$BASE" --head "$b" --title "$title" --body "$body" "${draft[@]}"
 
       - name: open issue on conflicts
         if: steps.detect.outputs.go == 'true' && steps.merge.outputs.rc == '10'
@@ -101,5 +110,5 @@ jobs:
           gh issue create --title "merge 5.10.$up has conflicts" --body "$(printf 'Files:\n\n```\n%s\n```\n\nFinish locally:\n\n```\ngit fetch origin && git fetch https://android.googlesource.com/kernel/common %s\ngit checkout -B %s origin/%s\nLABEL=%s .ci/merge-stable.sh %s\n```\n' "$files" "$UPSTREAM_BRANCH" "${{ steps.detect.outputs.branch }}" "$BASE" "$UPSTREAM_BRANCH" "${{ steps.detect.outputs.sha }}")"
 
       - name: fail on unexpected error
-        if: steps.merge.outputs.rc != '' && steps.merge.outputs.rc != '0' && steps.merge.outputs.rc != '10'
+        if: steps.merge.outputs.rc != '' && steps.merge.outputs.rc != '0' && steps.merge.outputs.rc != '10' && steps.merge.outputs.rc != '11'
         run: exit 1

@@ -4,6 +4,7 @@
 #
 # exit 0  = merge committed (or nothing to merge)
 # exit 10 = conflicts left, resolve by hand (repo stays mid-merge)
+# exit 11 = merge committed, but some conflicts were auto-resolved (AUTO_RESOLVE), needs review
 # exit 1  = other error
 set -uo pipefail
 
@@ -36,6 +37,20 @@ union_merge() {
   [ -s "$f" ]
 }
 
+# AUTO_RESOLVE=ours|theirs|none : what to do with conflicts that POLICY/rerere/fixes did not solve
+AUTO_RESOLVE="${AUTO_RESOLVE:-none}"
+AUTO=()
+
+auto_resolve() {
+  local f="$1" side="$2"
+  if git checkout "--$side" -- "$f" 2>/dev/null; then
+    git add -- "$f"
+  else
+    # file deleted on the chosen side (modify/delete conflict)
+    git rm -q -f -- "$f"
+  fi
+}
+
 # reuse saved rerere resolutions
 mkdir -p "$GITDIR/rr-cache"
 [ -d "$HERE/rr-cache" ] && cp -r "$HERE/rr-cache/." "$GITDIR/rr-cache/" 2>/dev/null
@@ -66,6 +81,12 @@ for h in "$HERE"/fixes/*.sh; do
 done
 
 mapfile -t left < <(git diff --name-only --diff-filter=U)
+if [ "$AUTO_RESOLVE" != none ] && ((${#left[@]})); then
+  for f in "${left[@]}"; do
+    auto_resolve "$f" "$AUTO_RESOLVE" && AUTO+=("$f") && echo "auto-resolved: $f"
+  done
+  mapfile -t left < <(git diff --name-only --diff-filter=U)
+fi
 if ((${#left[@]})); then
   echo
   echo "conflicts left (${#left[@]}):"
@@ -83,8 +104,14 @@ git add -u
 SHA="$(git rev-parse --short=12 "$TAG^{commit}")"
 VER="$(git show "$TAG:Makefile" | head -5 | awk '/^VERSION =/{v=$3} /^PATCHLEVEL =/{p=$3} /^SUBLEVEL =/{s=$3} END{print v"."p"."s}')"
 COUNT="$(git rev-list --count HEAD..MERGE_HEAD)"
+BODY="Merge Google $LABEL (Linux $VER, $SHA) into $BRANCH. $COUNT new upstream commits."
+if ((${#AUTO[@]})); then
+  BODY="$BODY"$'\n\n'"Conflicts auto-resolved with $AUTO_RESOLVE (review needed):"$'\n'"$(printf '  %s\n' "${AUTO[@]}")"
+fi
 git commit -q \
   -m "Merge $LABEL: update to Linux $VER ($SHA)" \
-  -m "Merge Google $LABEL (Linux $VER, $SHA) into $BRANCH. $COUNT new upstream commits." \
+  -m "$BODY" \
   || exit 1
 git log --oneline -1
+((${#AUTO[@]})) && exit 11
+exit 0
