@@ -50,7 +50,7 @@ jobs:
           done
           git fetch --no-tags --filter=blob:none --unshallow origin "${args[@]}"
 
-      - name: detect new release
+      - name: detect new commits from Google
         id: detect
         working-directory: src
         run: |
@@ -58,19 +58,16 @@ jobs:
           sha=$(git rev-parse FETCH_HEAD)
           cur=$(awk '/^SUBLEVEL/{print $3; exit}' Makefile)
           up=$(git show "$sha:Makefile" | awk '/^SUBLEVEL/{print $3; exit}')
-          echo "tree 5.10.$cur, $UPSTREAM_BRANCH 5.10.$up ($sha)"
-          b="test-lts-5.10.$up"
+          new=$(git rev-list --count "HEAD..$sha")
+          echo "tree 5.10.$cur, $UPSTREAM_BRANCH 5.10.$up ($sha), $new new commits"
           go=true
-          [ "$up" -gt "$cur" ] || go=false
-          git merge-base --is-ancestor "$sha" HEAD && go=false
-          git ls-remote --exit-code --heads origin "$b" >/dev/null 2>&1 && go=false
-          n=$(gh issue list --state all --search "merge 5.10.$up in:title" --json number -q 'length')
-          [ "${n:-0}" -eq 0 ] || go=false
+          [ "$new" -gt 0 ] || go=false
           echo "go=$go"   >> "$GITHUB_OUTPUT"
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
           echo "up=$up"   >> "$GITHUB_OUTPUT"
-          echo "branch=$b" >> "$GITHUB_OUTPUT"
+          echo "new=$new" >> "$GITHUB_OUTPUT"
 
+      # merges straight into BASE (no test branch, no PR)
       - name: merge
         id: merge
         if: steps.detect.outputs.go == 'true'
@@ -78,36 +75,35 @@ jobs:
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git checkout -B "${{ steps.detect.outputs.branch }}"
           set +e
           LABEL="$UPSTREAM_BRANCH" bash ../ci/.ci/merge-stable.sh "${{ steps.detect.outputs.sha }}" 2>&1 | tee ../merge.log
           echo "rc=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
           exit 0
 
-      - name: push and open PR
+      - name: push to BASE
         if: steps.detect.outputs.go == 'true' && (steps.merge.outputs.rc == '0' || steps.merge.outputs.rc == '11')
         working-directory: src
-        run: |
-          b="${{ steps.detect.outputs.branch }}"
-          up="${{ steps.detect.outputs.up }}"
-          git push origin "HEAD:refs/heads/$b"
-          title="Update to Google $UPSTREAM_BRANCH (Linux 5.10.$up)"
-          body="Merge Google $UPSTREAM_BRANCH, Linux 5.10.$up (${{ steps.detect.outputs.sha }}), into $BASE. Not built yet. Wait for tester."
-          draft=()
-          if [ "${{ steps.merge.outputs.rc }}" = "11" ]; then
-            files=$(grep '^auto-resolved: ' ../merge.log | sed 's/^auto-resolved: /- /')
-            body="$body"$'\n\n'"Conflicts auto-resolved with '$AUTO_RESOLVE' (review before merging):"$'\n'"$files"
-            title="$title [conflicts auto-resolved]"
-            draft=(--draft)
-          fi
-          gh pr create --base "$BASE" --head "$b" --title "$title" --body "$body" "${draft[@]}"
+        run: git push origin "HEAD:refs/heads/$BASE"
 
-      - name: open issue on conflicts
+      - name: issue to review auto-resolved conflicts
+        if: steps.detect.outputs.go == 'true' && steps.merge.outputs.rc == '11'
+        run: |
+          up=${{ steps.detect.outputs.up }}
+          short=$(echo "${{ steps.detect.outputs.sha }}" | cut -c1-12)
+          files=$(grep '^auto-resolved: ' merge.log | sed 's/^auto-resolved: /- /')
+          gh issue create --title "review: $UPSTREAM_BRANCH 5.10.$up ($short) merged, conflicts auto-resolved" \
+            --body "$(printf 'Merged into %s. These files had conflicts and were auto-resolved with `%s`:\n\n%s\n' "$BASE" "$AUTO_RESOLVE" "$files")"
+
+      - name: issue on unresolved conflicts
         if: steps.detect.outputs.go == 'true' && steps.merge.outputs.rc == '10'
         run: |
           up=${{ steps.detect.outputs.up }}
+          short=$(echo "${{ steps.detect.outputs.sha }}" | cut -c1-12)
+          title="merge $UPSTREAM_BRANCH 5.10.$up ($short) has conflicts"
+          n=$(gh issue list --state all --search "$short in:title" --json number -q 'length')
+          [ "${n:-0}" -eq 0 ] || exit 0
           files=$(sed -n '/^conflicts left/,/^resolve/p' merge.log | grep '^  ')
-          gh issue create --title "merge 5.10.$up has conflicts" --body "$(printf 'Files:\n\n```\n%s\n```\n\nFinish locally:\n\n```\ngit fetch origin && git fetch https://android.googlesource.com/kernel/common %s\ngit checkout -B %s origin/%s\nLABEL=%s .ci/merge-stable.sh %s\n```\n' "$files" "$UPSTREAM_BRANCH" "${{ steps.detect.outputs.branch }}" "$BASE" "$UPSTREAM_BRANCH" "${{ steps.detect.outputs.sha }}")"
+          gh issue create --title "$title" --body "$(printf 'Files:\n\n```\n%s\n```\n' "$files")"
 
       - name: fail on unexpected error
         if: steps.merge.outputs.rc != '' && steps.merge.outputs.rc != '0' && steps.merge.outputs.rc != '10' && steps.merge.outputs.rc != '11'
