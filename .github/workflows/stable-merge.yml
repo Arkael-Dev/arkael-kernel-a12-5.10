@@ -35,8 +35,13 @@ jobs:
         with:
           ref: ${{ env.BASE }}
           path: src
-          fetch-depth: 0
+          fetch-depth: 1
+          fetch-tags: false
           filter: blob:none
+
+      - name: fetch full history of BASE only
+        working-directory: src
+        run: git fetch --no-tags --filter=blob:none --unshallow origin "$BASE"
 
       - name: detect new release
         id: detect
