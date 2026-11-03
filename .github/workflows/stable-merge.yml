@@ -20,7 +20,6 @@ env:
   UPSTREAM_BRANCH: android12-5.10-lts
   KEEP_BRANCHES: arkael-linux-stable bore-bbrv3-5.10 arkael-bore test-5.10.273 arkael-bore-lts-merge
   AUTO_RESOLVE: ours
-  GH_TOKEN: ${{ github.token }}
 
 jobs:
   merge:
@@ -41,14 +40,16 @@ jobs:
           fetch-tags: false
           filter: blob:none
 
-      - name: fetch only the branches we use
+      - name: fetch branches
         working-directory: src
         run: |
-          args=()
+          # BASE: full history (needed for the merge)
+          git fetch --no-tags --filter=blob:none --unshallow origin "+refs/heads/$BASE:refs/remotes/origin/$BASE"
+          # the rest: best effort, missing branches are skipped
           for b in $KEEP_BRANCHES; do
-            args+=("+refs/heads/$b:refs/remotes/origin/$b")
+            [ "$b" = "$BASE" ] && continue
+            git fetch --no-tags --filter=blob:none origin "+refs/heads/$b:refs/remotes/origin/$b" || echo "skip: $b not found"
           done
-          git fetch --no-tags --filter=blob:none --unshallow origin "${args[@]}"
 
       - name: detect new commits from Google
         id: detect
@@ -87,23 +88,42 @@ jobs:
 
       - name: issue to review auto-resolved conflicts
         if: steps.detect.outputs.go == 'true' && steps.merge.outputs.rc == '11'
-        run: |
-          up=${{ steps.detect.outputs.up }}
-          short=$(echo "${{ steps.detect.outputs.sha }}" | cut -c1-12)
-          files=$(grep '^auto-resolved: ' merge.log | sed 's/^auto-resolved: /- /')
-          gh issue create --title "review: $UPSTREAM_BRANCH 5.10.$up ($short) merged, conflicts auto-resolved" \
-            --body "$(printf 'Merged into %s. These files had conflicts and were auto-resolved with `%s`:\n\n%s\n' "$BASE" "$AUTO_RESOLVE" "$files")"
+        uses: actions/github-script@v7
+        env:
+          UP: ${{ steps.detect.outputs.up }}
+          SHA: ${{ steps.detect.outputs.sha }}
+        with:
+          script: |
+            const fs = require('fs');
+            const files = fs.readFileSync('merge.log', 'utf8').split('\n')
+              .filter(l => l.startsWith('auto-resolved: ')).map(l => '- ' + l.slice(15)).join('\n');
+            const short = process.env.SHA.slice(0, 12);
+            await github.rest.issues.create({
+              ...context.repo,
+              title: `review: ${process.env.UPSTREAM_BRANCH} 5.10.${process.env.UP} (${short}) merged, conflicts auto-resolved`,
+              body: `Merged into ${process.env.BASE}. These files had conflicts and were auto-resolved with \`${process.env.AUTO_RESOLVE}\`:\n\n${files}\n`,
+            });
 
       - name: issue on unresolved conflicts
         if: steps.detect.outputs.go == 'true' && steps.merge.outputs.rc == '10'
-        run: |
-          up=${{ steps.detect.outputs.up }}
-          short=$(echo "${{ steps.detect.outputs.sha }}" | cut -c1-12)
-          title="merge $UPSTREAM_BRANCH 5.10.$up ($short) has conflicts"
-          n=$(gh issue list --state all --search "$short in:title" --json number -q 'length')
-          [ "${n:-0}" -eq 0 ] || exit 0
-          files=$(sed -n '/^conflicts left/,/^resolve/p' merge.log | grep '^  ')
-          gh issue create --title "$title" --body "$(printf 'Files:\n\n```\n%s\n```\n' "$files")"
+        uses: actions/github-script@v7
+        env:
+          UP: ${{ steps.detect.outputs.up }}
+          SHA: ${{ steps.detect.outputs.sha }}
+        with:
+          script: |
+            const fs = require('fs');
+            const short = process.env.SHA.slice(0, 12);
+            const q = `repo:${context.repo.owner}/${context.repo.repo} is:issue in:title ${short}`;
+            const found = await github.rest.search.issuesAndPullRequests({ q });
+            if (found.data.total_count > 0) return;
+            const log = fs.readFileSync('merge.log', 'utf8');
+            const m = log.match(/conflicts left[\s\S]*?(?=\nresolve|$)/);
+            await github.rest.issues.create({
+              ...context.repo,
+              title: `merge ${process.env.UPSTREAM_BRANCH} 5.10.${process.env.UP} (${short}) has conflicts`,
+              body: '```\n' + (m ? m[0] : log.slice(-2000)) + '\n```',
+            });
 
       - name: fail on unexpected error
         if: steps.merge.outputs.rc != '' && steps.merge.outputs.rc != '0' && steps.merge.outputs.rc != '10' && steps.merge.outputs.rc != '11'
