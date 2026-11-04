@@ -375,6 +375,9 @@ void futex_wait_queue(struct futex_hash_bucket *hb, struct futex_q *q,
 		 * is no timeout, or if it has yet to expire.
 		 */
 		if (!timeout || timeout->task) {
+#ifdef CONFIG_SCHED_BORE
+			current->bore.futex_waiting = true;
+#endif /* CONFIG_SCHED_BORE */
 			trace_android_vh_futex_sleep_start(current);
 #ifdef CONFIG_SCHED_BORE
 			if (likely(current->se.bore))
@@ -382,8 +385,7 @@ void futex_wait_queue(struct futex_hash_bucket *hb, struct futex_q *q,
 #endif /* CONFIG_SCHED_BORE */
 			schedule();
 #ifdef CONFIG_SCHED_BORE
-			if (likely(current->se.bore))
-				current->se.bore->futex_waiting = false;
+			current->bore.futex_waiting = false;
 #endif /* CONFIG_SCHED_BORE */
 		}
 	}
