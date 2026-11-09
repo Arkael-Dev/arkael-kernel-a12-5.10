@@ -891,6 +891,9 @@ struct bore_ctx {
 	bool			futex_waiting;
 	struct bore_bc	subtree;
 	struct bore_bc	group;
+	struct hlist_node	node;
+	struct task_struct	*task;
+	struct rcu_head		rcu;
 };
 #endif /* CONFIG_SCHED_BORE */
 
