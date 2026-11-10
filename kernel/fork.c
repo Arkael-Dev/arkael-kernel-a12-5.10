@@ -976,7 +976,6 @@ void __put_task_struct(struct task_struct *tsk)
 	put_signal_struct(tsk->signal);
 	sched_core_free(tsk);
 #ifdef CONFIG_SCHED_BORE
-	free_task_bore(tsk);
 #endif
 	free_task(tsk);
 }
