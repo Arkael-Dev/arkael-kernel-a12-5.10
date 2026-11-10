@@ -30,6 +30,20 @@ config MQ_IOSCHED_DEFAULT_ADIOS
 	help
 	  Enable the ADIOS I/O scheduler as the default scheduler for MQ I/O.
 
+config MQ_IOSCHED_SSG
+	tristate "SamSung Generic I/O scheduler"
+	default y
+	help
+	  SamSung Generic IO scheduler.
+
+config MQ_IOSCHED_SSG_CGROUP
+	tristate "Control Group for SamSung Generic I/O scheduler"
+	default y
+	depends on BLK_CGROUP
+	depends on MQ_IOSCHED_SSG
+	help
+	  Control Group for SamSung Generic IO scheduler.
+
 config IOSCHED_BFQ
 	tristate "BFQ I/O scheduler"
 	select BLK_ICQ
