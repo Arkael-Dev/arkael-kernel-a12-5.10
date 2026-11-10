@@ -29,7 +29,6 @@
 #include <linux/netfilter/nfnetlink_queue.h>
 #include <linux/netfilter/nf_conntrack_common.h>
 #include <linux/list.h>
-#include <net/ip.h>
 #include <net/sock.h>
 #include <net/tcp_states.h>
 #include <net/netfilter/nf_queue.h>
@@ -120,9 +119,17 @@ instance_create(struct nfnl_queue_net *q, u_int16_t queue_num, u32 portid)
 	unsigned int h;
 	int err;
 
-	inst = kzalloc(sizeof(*inst), GFP_KERNEL_ACCOUNT);
-	if (!inst)
-		return ERR_PTR(-ENOMEM);
+	spin_lock(&q->instances_lock);
+	if (instance_lookup(q, queue_num)) {
+		err = -EEXIST;
+		goto out_unlock;
+	}
+
+	inst = kzalloc(sizeof(*inst), GFP_ATOMIC);
+	if (!inst) {
+		err = -ENOMEM;
+		goto out_unlock;
+	}
 
 	inst->queue_num = queue_num;
 	inst->peer_portid = portid;
@@ -132,15 +139,9 @@ instance_create(struct nfnl_queue_net *q, u_int16_t queue_num, u32 portid)
 	spin_lock_init(&inst->lock);
 	INIT_LIST_HEAD(&inst->queue_list);
 
-	spin_lock(&q->instances_lock);
-	if (instance_lookup(q, queue_num)) {
-		err = -EEXIST;
-		goto out_unlock;
-	}
-
 	if (!try_module_get(THIS_MODULE)) {
 		err = -EAGAIN;
-		goto out_unlock;
+		goto out_free;
 	}
 
 	h = instance_hashfn(queue_num);
@@ -150,9 +151,10 @@ instance_create(struct nfnl_queue_net *q, u_int16_t queue_num, u32 portid)
 
 	return inst;
 
+out_free:
+	kfree(inst);
 out_unlock:
 	spin_unlock(&q->instances_lock);
-	kfree(inst);
 	return ERR_PTR(err);
 }
 
@@ -371,20 +373,6 @@ nla_put_failure:
 	return -1;
 }
 
-static int nf_queue_checksum_help(struct sk_buff *entskb)
-{
-	if (entskb->protocol == htons(ETH_P_IP)) {
-		if (!pskb_network_may_pull(entskb, sizeof(struct iphdr)) ||
-		    ip_check_csum_start(entskb))
-			return -EINVAL;
-	}
-
-	if (skb_csum_is_sctp(entskb))
-		return skb_crc32c_csum_help(entskb);
-
-	return skb_checksum_help(entskb);
-}
-
 static struct sk_buff *
 nfqnl_build_packet_message(struct net *net, struct nfqnl_instance *queue,
 			   struct nf_queue_entry *entry,
@@ -441,7 +429,7 @@ nfqnl_build_packet_message(struct net *net, struct nfqnl_instance *queue,
 	case NFQNL_COPY_PACKET:
 		if (!(queue->flags & NFQA_CFG_F_GSO) &&
 		    entskb->ip_summed == CHECKSUM_PARTIAL &&
-		    nf_queue_checksum_help(entskb))
+		    skb_checksum_help(entskb))
 			return NULL;
 
 		data_len = READ_ONCE(queue->copy_range);
@@ -813,7 +801,7 @@ nfqnl_enqueue_packet(struct nf_queue_entry *entry, unsigned int queuenum)
 		break;
 	}
 
-	if (!skb_is_gso(skb) || ((queue->flags & NFQA_CFG_F_GSO) && !skb_is_gso_sctp(skb)))
+	if ((queue->flags & NFQA_CFG_F_GSO) || !skb_is_gso(skb))
 		return __nfqnl_enqueue_packet(net, queue, entry);
 
 	nf_bridge_adjust_skb_data(skb);
@@ -994,7 +982,6 @@ nfqnl_rcv_nl_event(struct notifier_block *this,
 	if (event == NETLINK_URELEASE && n->protocol == NETLINK_NETFILTER) {
 		int i;
 
-		nfnl_lock(NFNL_SUBSYS_QUEUE);
 		/* destroy all instances for this portid */
 		spin_lock(&q->instances_lock);
 		for (i = 0; i < INSTANCE_BUCKETS; i++) {
@@ -1008,7 +995,6 @@ nfqnl_rcv_nl_event(struct notifier_block *this,
 			}
 		}
 		spin_unlock(&q->instances_lock);
-		nfnl_unlock(NFNL_SUBSYS_QUEUE);
 	}
 	return NOTIFY_DONE;
 }
@@ -1280,8 +1266,7 @@ static int nfqnl_recv_config(struct net *net, struct sock *ctnl,
 	struct nfqnl_msg_config_cmd *cmd = NULL;
 	struct nfnl_queue_net *q = nfnl_queue_pernet(net);
 	__u32 flags = 0, mask = 0;
-
-	WARN_ON_ONCE(!lockdep_nfnl_is_held(NFNL_SUBSYS_QUEUE));
+	int ret = 0;
 
 	if (nfqa[NFQA_CFG_CMD]) {
 		cmd = nla_data(nfqa[NFQA_CFG_CMD]);
@@ -1327,44 +1312,47 @@ static int nfqnl_recv_config(struct net *net, struct sock *ctnl,
 		}
 	}
 
-	/* Lookup queue under RCU. After peer_portid check (or for new queue
-	 * in BIND case), the queue is owned by the socket sending this message.
-	 * nfqnl_rcv_nl_event() will block on the nfnl subsys mutex that is
-	 * held by the caller, so the queue cannot be destroyed in parallel,
-	 * even after we drop the RCU read lock.
-	 */
 	rcu_read_lock();
 	queue = instance_lookup(q, queue_num);
 	if (queue && queue->peer_portid != NETLINK_CB(skb).portid) {
-		rcu_read_unlock();
-		return -EPERM;
+		ret = -EPERM;
+		goto err_out_unlock;
 	}
-	rcu_read_unlock();
 
 	if (cmd != NULL) {
 		switch (cmd->command) {
 		case NFQNL_CFG_CMD_BIND:
-			if (queue)
-				return -EBUSY;
-			queue = instance_create(q, queue_num, NETLINK_CB(skb).portid);
-			if (IS_ERR(queue))
-				return PTR_ERR(queue);
+			if (queue) {
+				ret = -EBUSY;
+				goto err_out_unlock;
+			}
+			queue = instance_create(q, queue_num,
+						NETLINK_CB(skb).portid);
+			if (IS_ERR(queue)) {
+				ret = PTR_ERR(queue);
+				goto err_out_unlock;
+			}
 			break;
 		case NFQNL_CFG_CMD_UNBIND:
-			if (!queue)
-				return -ENODEV;
+			if (!queue) {
+				ret = -ENODEV;
+				goto err_out_unlock;
+			}
 			instance_destroy(q, queue);
-			return 0;
+			goto err_out_unlock;
 		case NFQNL_CFG_CMD_PF_BIND:
 		case NFQNL_CFG_CMD_PF_UNBIND:
 			break;
 		default:
-			return -EOPNOTSUPP;
+			ret = -ENOTSUPP;
+			goto err_out_unlock;
 		}
 	}
 
-	if (!queue)
-		return -ENODEV;
+	if (!queue) {
+		ret = -ENODEV;
+		goto err_out_unlock;
+	}
 
 	if (nfqa[NFQA_CFG_PARAMS]) {
 		struct nfqnl_msg_config_params *params =
@@ -1389,7 +1377,9 @@ static int nfqnl_recv_config(struct net *net, struct sock *ctnl,
 		spin_unlock_bh(&queue->lock);
 	}
 
-	return 0;
+err_out_unlock:
+	rcu_read_unlock();
+	return ret;
 }
 
 static const struct nfnl_callback nfqnl_cb[NFQNL_MSG_MAX] = {

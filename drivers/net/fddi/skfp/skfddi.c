@@ -924,8 +924,7 @@ static int skfp_ctl_set_mac_address(struct net_device *dev, void *addr)
 
 	memcpy(dev->dev_addr, p_sockaddr->sa_data, FDDI_K_ALEN);
 	spin_lock_irqsave(&bp->DriverLock, Flags);
-	if (netif_running(dev))
-		ResetAdapter(smc);
+	ResetAdapter(smc);
 	spin_unlock_irqrestore(&bp->DriverLock, Flags);
 
 	return 0;		/* always return zero */

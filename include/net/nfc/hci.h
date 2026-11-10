@@ -144,7 +144,7 @@ struct nfc_hci_dev {
 	data_exchange_cb_t async_cb;
 	void *async_cb_context;
 
-	u8 gb[NFC_MAX_GT_LEN];
+	u8 *gb;
 	size_t gb_len;
 
 	unsigned long quirks;

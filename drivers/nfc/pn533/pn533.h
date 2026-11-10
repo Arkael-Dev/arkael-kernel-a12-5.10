@@ -6,8 +6,6 @@
  * Copyright (C) 2012-2013 Tieto Poland
  */
 
-#include <net/nfc/nfc.h>
-
 #define PN533_DEVICE_STD		0x1
 #define PN533_DEVICE_PASORI		0x2
 #define PN533_DEVICE_ACR122U		0x3
@@ -168,7 +166,7 @@ struct pn533 {
 	struct timer_list listen_timer;
 	int cancel_listen;
 
-	u8 gb[NFC_MAX_GT_LEN];
+	u8 *gb;
 	size_t gb_len;
 
 	u8 tgt_available_prots;

@@ -1931,9 +1931,7 @@ exit_remove:
 	for (i = 0; i < ARRAY_SIZE(w83793_temp); i++)
 		device_remove_file(dev, &w83793_temp[i].dev_attr);
 free_mem:
-	mutex_lock(&watchdog_data_mutex);
-	kref_put(&data->kref, w83793_release_resources);
-	mutex_unlock(&watchdog_data_mutex);
+	kfree(data);
 exit:
 	return err;
 }

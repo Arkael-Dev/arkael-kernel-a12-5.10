@@ -169,13 +169,13 @@ static int msm_hdmi_phy_probe(struct platform_device *pdev)
 
 	ret = msm_hdmi_phy_resource_enable(phy);
 	if (ret)
-		goto err_pm_disable;
+		return ret;
 
 	ret = msm_hdmi_phy_pll_init(pdev, phy->cfg->type);
 	if (ret) {
 		DRM_DEV_ERROR(dev, "couldn't init PLL\n");
 		msm_hdmi_phy_resource_disable(phy);
-		goto err_pm_disable;
+		return ret;
 	}
 
 	msm_hdmi_phy_resource_disable(phy);
@@ -183,10 +183,6 @@ static int msm_hdmi_phy_probe(struct platform_device *pdev)
 	platform_set_drvdata(pdev, phy);
 
 	return 0;
-
-err_pm_disable:
-	pm_runtime_disable(dev);
-	return ret;
 }
 
 static int msm_hdmi_phy_remove(struct platform_device *pdev)

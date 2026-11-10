@@ -1490,14 +1490,14 @@ static int digital_tg_send_atr_res(struct nfc_digital_dev *ddev,
 				   struct digital_atr_req *atr_req)
 {
 	struct digital_atr_res *atr_res;
-	u8 gb[NFC_MAX_GT_LEN];
 	struct sk_buff *skb;
-	u8 payload_bits;
+	u8 *gb, payload_bits;
 	size_t gb_len;
 	int rc;
 
-	nfc_get_local_general_bytes(ddev->nfc_dev, gb, sizeof(gb),
-				    &gb_len);
+	gb = nfc_get_local_general_bytes(ddev->nfc_dev, &gb_len);
+	if (!gb)
+		gb_len = 0;
 
 	skb = digital_skb_alloc(ddev, sizeof(struct digital_atr_res) + gb_len);
 	if (!skb)

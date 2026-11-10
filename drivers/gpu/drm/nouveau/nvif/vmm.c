@@ -108,7 +108,6 @@ void
 nvif_vmm_dtor(struct nvif_vmm *vmm)
 {
 	kfree(vmm->page);
-	vmm->page = NULL;
 	nvif_object_dtor(&vmm->object);
 }
 

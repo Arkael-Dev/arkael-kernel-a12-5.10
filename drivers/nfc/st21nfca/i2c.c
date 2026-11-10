@@ -292,42 +292,35 @@ static int check_crc(u8 *buf, int buflen)
  */
 static int st21nfca_hci_i2c_repack(struct sk_buff *skb)
 {
-	int read, write, r, size;
+	int i, j, r, size;
 
-	if (skb->len < ST21NFCA_FRAME_HEADROOM ||
-	    !IS_START_OF_FRAME(skb->data))
+	if (skb->len < 1 || (skb->len > 1 && skb->data[1] != 0))
 		return -EBADMSG;
 
 	size = get_frame_size(skb->data, skb->len);
 	if (size > 0) {
-		if (size < ST21NFCA_FRAME_HEADROOM + 2)
-			return -EBADMSG;
-
 		skb_trim(skb, size);
 		/* remove ST21NFCA byte stuffing for upper layer */
-		for (read = 1, write = 1; read < skb->len;) {
-			if (skb->data[read] ==
+		for (i = 1, j = 0; i < skb->len; i++) {
+			if (skb->data[i + j] ==
 					(u8) ST21NFCA_ESCAPE_BYTE_STUFFING) {
-				if (read + 1 == skb->len)
-					return -EBADMSG;
-
-				skb->data[write++] = skb->data[read + 1]
-						     | ST21NFCA_BYTE_STUFFING_MASK;
-				read += 2;
-			} else {
-				skb->data[write++] = skb->data[read++];
+				skb->data[i] = skb->data[i + j + 1]
+						| ST21NFCA_BYTE_STUFFING_MASK;
+				i++;
+				j++;
 			}
+			skb->data[i] = skb->data[i + j];
 		}
 		/* remove byte stuffing useless byte */
-		skb_trim(skb, write);
-		if (skb->len < ST21NFCA_FRAME_HEADROOM + 2)
-			return -EBADMSG;
+		skb_trim(skb, i - j);
 		/* remove ST21NFCA_SOF_EOF from head */
 		skb_pull(skb, 1);
 
 		r = check_crc(skb->data, skb->len);
-		if (r != 0)
+		if (r != 0) {
+			i = 0;
 			return -EBADMSG;
+		}
 
 		/* remove headbyte */
 		skb_pull(skb, 1);

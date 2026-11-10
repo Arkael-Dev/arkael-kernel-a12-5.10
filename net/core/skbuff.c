@@ -278,7 +278,7 @@ static struct sk_buff *__build_skb_around(struct sk_buff *skb,
 	skb->head = data;
 	skb->data = data;
 	skb_reset_tail_pointer(skb);
-	skb_set_end_offset(skb, size);
+	skb->end = skb->tail + size;
 	skb->mac_header = (typeof(skb->mac_header))~0U;
 	skb->transport_header = (typeof(skb->transport_header))~0U;
 
@@ -5117,8 +5117,7 @@ static int skb_checksum_setup_ipv6(struct sk_buff *skb, bool recalculate)
 			err = skb_maybe_pull_tail(skb,
 						  off +
 						  sizeof(struct ipv6_opt_hdr),
-						  off +
-						  sizeof(struct ipv6_opt_hdr));
+						  MAX_IPV6_HDR_LEN);
 			if (err < 0)
 				goto out;
 
@@ -5133,8 +5132,7 @@ static int skb_checksum_setup_ipv6(struct sk_buff *skb, bool recalculate)
 			err = skb_maybe_pull_tail(skb,
 						  off +
 						  sizeof(struct ip_auth_hdr),
-						  off +
-						  sizeof(struct ip_auth_hdr));
+						  MAX_IPV6_HDR_LEN);
 			if (err < 0)
 				goto out;
 
@@ -5149,8 +5147,7 @@ static int skb_checksum_setup_ipv6(struct sk_buff *skb, bool recalculate)
 			err = skb_maybe_pull_tail(skb,
 						  off +
 						  sizeof(struct frag_hdr),
-						  off +
-						  sizeof(struct frag_hdr));
+						  MAX_IPV6_HDR_LEN);
 			if (err < 0)
 				goto out;
 

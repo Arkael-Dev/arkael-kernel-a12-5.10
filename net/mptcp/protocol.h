@@ -314,8 +314,7 @@ struct mptcp_subflow_context {
 		mpc_map : 1,
 		backup : 1,
 		rx_eof : 1,
-		can_ack : 1,	    /* only after processing the remote a key */
-		resetting : 1;	    /* subflow is resetting */
+		can_ack : 1;	    /* only after processing the remote a key */
 	enum mptcp_data_avail data_avail;
 	u32	remote_nonce;
 	u64	thmac;

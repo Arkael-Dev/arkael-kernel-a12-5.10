@@ -288,14 +288,12 @@ static int aspeed_sdc_probe(struct platform_device *pdev)
 		if (!cpdev) {
 			of_node_put(child);
 			ret = -ENODEV;
-			goto err_children;
+			goto err_clk;
 		}
 	}
 
 	return 0;
 
-err_children:
-	device_for_each_child_reverse(&pdev->dev, NULL, of_platform_device_destroy);
 err_clk:
 	clk_disable_unprepare(sdc->clk);
 	return ret;
@@ -305,7 +303,6 @@ static int aspeed_sdc_remove(struct platform_device *pdev)
 {
 	struct aspeed_sdc *sdc = dev_get_drvdata(&pdev->dev);
 
-	device_for_each_child_reverse(&pdev->dev, NULL, of_platform_device_destroy);
 	clk_disable_unprepare(sdc->clk);
 
 	return 0;

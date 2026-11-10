@@ -1225,15 +1225,10 @@ static int amdgpu_atom_execute_table_locked(struct atom_context *ctx, int index,
 	ectx.ps = params;
 	ectx.abort = false;
 	ectx.last_jump = 0;
-	if (ws) {
+	if (ws)
 		ectx.ws = kcalloc(4, ws, GFP_KERNEL);
-		if (!ectx.ws) {
-			ret = -ENOMEM;
-			goto free;
-		}
-	} else {
+	else
 		ectx.ws = NULL;
-	}
 
 	debug_depth++;
 	while (1) {

@@ -332,8 +332,13 @@ static int ocfs2_mknod(struct inode *dir,
 		goto leave;
 
 	/* calculate meta data/clusters for setting security and acl xattr */
-	ocfs2_calc_xattr_init(dir, mode, &si, &want_clusters, &xattr_credits,
-			      &want_meta, &acl_state);
+	status = ocfs2_calc_xattr_init(dir, mode, &si, &want_clusters,
+				       &xattr_credits, &want_meta,
+				       &acl_state);
+	if (status < 0) {
+		mlog_errno(status);
+		goto leave;
+	}
 
 	/* Reserve a cluster if creating an extent based directory. */
 	if (S_ISDIR(mode) && !ocfs2_supports_inline_data(osb)) {

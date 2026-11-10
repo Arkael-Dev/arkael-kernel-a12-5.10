@@ -1094,7 +1094,7 @@ static int zynqmp_qspi_probe(struct platform_device *pdev)
 	struct device *dev = &pdev->dev;
 	struct device_node *np = dev->of_node;
 
-	ctlr = devm_spi_alloc_master(&pdev->dev, sizeof(*xqspi));
+	ctlr = spi_alloc_master(&pdev->dev, sizeof(*xqspi));
 	if (!ctlr)
 		return -ENOMEM;
 
@@ -1104,25 +1104,29 @@ static int zynqmp_qspi_probe(struct platform_device *pdev)
 	platform_set_drvdata(pdev, xqspi);
 
 	xqspi->regs = devm_platform_ioremap_resource(pdev, 0);
-	if (IS_ERR(xqspi->regs))
-		return PTR_ERR(xqspi->regs);
+	if (IS_ERR(xqspi->regs)) {
+		ret = PTR_ERR(xqspi->regs);
+		goto remove_master;
+	}
 
 	xqspi->pclk = devm_clk_get(&pdev->dev, "pclk");
 	if (IS_ERR(xqspi->pclk)) {
 		dev_err(dev, "pclk clock not found.\n");
-		return PTR_ERR(xqspi->pclk);
+		ret = PTR_ERR(xqspi->pclk);
+		goto remove_master;
 	}
 
 	xqspi->refclk = devm_clk_get(&pdev->dev, "ref_clk");
 	if (IS_ERR(xqspi->refclk)) {
 		dev_err(dev, "ref_clk clock not found.\n");
-		return PTR_ERR(xqspi->refclk);
+		ret = PTR_ERR(xqspi->refclk);
+		goto remove_master;
 	}
 
 	ret = clk_prepare_enable(xqspi->pclk);
 	if (ret) {
 		dev_err(dev, "Unable to enable APB clock.\n");
-		return ret;
+		goto remove_master;
 	}
 
 	ret = clk_prepare_enable(xqspi->refclk);
@@ -1185,6 +1189,8 @@ clk_dis_all:
 	clk_disable_unprepare(xqspi->refclk);
 clk_dis_pclk:
 	clk_disable_unprepare(xqspi->pclk);
+remove_master:
+	spi_controller_put(ctlr);
 
 	return ret;
 }
