@@ -559,23 +559,9 @@ struct sched_burst_cache {
 	};
 };
 
-struct sched_bore_data {
-	u64				burst_time;
-	u16				prev_penalty;
-	u16				curr_penalty;
-	union {
-		u16			penalty;
-		struct {
-			u8		_pad;
-			u8		score;
-		};
-	};
-	bool			stop_update;
-	bool			futex_waiting;
-	struct sched_burst_cache subtree;
-	struct sched_burst_cache group;
-};
 #endif // CONFIG_SCHED_BORE
+
+struct bore_ctx;
 
 struct sched_entity {
 	/* For load-balancing: */
@@ -635,7 +621,7 @@ struct sched_entity {
 	 * layout. See kernel/sched/bore.c: alloc_task_bore()/free_task_bore().
 	 */
 #ifdef CONFIG_SCHED_BORE
-	ANDROID_KABI_USE(1, struct sched_bore_data *bore);
+	ANDROID_KABI_USE(1, struct bore_ctx *bore);
 #else
 	ANDROID_KABI_RESERVE(1);
 #endif
@@ -968,9 +954,6 @@ struct task_struct {
 #ifdef CONFIG_SCHED_CLASS_EXT
 	struct sched_ext_entity		scx;
 #endif
-#ifdef CONFIG_SCHED_BORE
-	struct bore_ctx			bore;
-#endif /* CONFIG_SCHED_BORE */
 	const struct sched_class	*sched_class;
 
 #ifdef CONFIG_SCHED_CORE

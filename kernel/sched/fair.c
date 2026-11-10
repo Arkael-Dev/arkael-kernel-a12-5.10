@@ -1013,7 +1013,7 @@ static struct sched_entity *pick_eevdf(struct cfs_rq *cfs_rq)
 		if (static_branch_likely(&sched_bore_key)) {
 			if ((static_branch_likely(&sched_burst_protect_slice_cond_key) ||
 			     static_branch_unlikely(&sched_burst_protect_slice_prefer_key)) &&
-			    (!entity_is_task(curr) || !task_of(curr)->bore.futex_waiting))
+			    (!entity_is_task(curr) || !task_of(curr)->se.bore->futex_waiting))
 				return curr;
 		} else
 #endif /* CONFIG_SCHED_BORE */
@@ -5564,7 +5564,7 @@ place_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
 #ifdef CONFIG_SCHED_BORE
 	if (static_branch_likely(&sched_bore_key) &&
 			entity_is_task(se) &&
-			task_of(se)->bore.futex_waiting)
+			task_of(se)->se.bore->futex_waiting)
 		goto vslice_found;
 #endif /* !CONFIG_SCHED_BORE */
 	vslice = calc_delta_fair(se->slice, se);

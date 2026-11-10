@@ -601,6 +601,9 @@ void free_task(struct task_struct *tsk)
 	if (tsk->flags & PF_KTHREAD)
 		free_kthread_struct(tsk);
 	bpf_task_storage_free(tsk);
+#ifdef CONFIG_SCHED_BORE
+	free_task_bore(tsk);
+#endif
 	free_task_struct(tsk);
 }
 EXPORT_SYMBOL(free_task);
@@ -1109,6 +1112,14 @@ static struct task_struct *dup_task_struct(struct task_struct *orig, int node)
 	err = arch_dup_task_struct(tsk, orig);
 	if (err)
 		goto free_tsk;
+
+#ifdef CONFIG_SCHED_BORE
+	/* struct copy shared the parent's ctx pointer: never reuse it */
+	tsk->se.bore = NULL;
+	err = alloc_task_bore(tsk);
+	if (err)
+		goto free_tsk;
+#endif
 
 	err = alloc_thread_stack_node(tsk, node);
 	if (err)
