@@ -9,7 +9,6 @@
 #include <linux/blk-mq.h>
 
 #include "blk-mq.h"
-#include "blk-mq-tag.h"
 #include "ssg-cgroup.h"
 
 #ifndef container_of_safe
@@ -98,7 +97,7 @@ static void ssg_blkcg_pd_init(struct blkg_policy_data *pd)
 
 	atomic_set(&ssg_blkg->current_rqs, 0);
 	ssg_blkcg_set_shallow_depth(ssg_blkcg, ssg_blkg,
-			pd->blkg->q->queue_hw_ctx[0]->sched_tags);
+			((struct blk_mq_hw_ctx *)xa_load(&pd->blkg->q->hctx_table, 0))->sched_tags);
 }
 
 static void ssg_blkcg_pd_free(struct blkg_policy_data *pd)
@@ -117,7 +116,7 @@ unsigned int ssg_blkcg_shallow_depth(struct request_queue *q)
 	struct ssg_blkg *ssg_blkg;
 
 	rcu_read_lock();
-	blkg = blkg_lookup(css_to_blkcg(blkcg_css()), q);
+	blkg = blkg_lookup(css_to_blkcg(task_css(current, io_cgrp_id)), q);
 	ssg_blkg = BLKG_TO_SSG_BLKG(blkg);
 	rcu_read_unlock();
 
@@ -208,7 +207,7 @@ static int ssg_blkcg_set_max_available_ratio(struct cgroup_subsys_state *css,
 			continue;
 
 		ssg_blkcg_set_shallow_depth(ssg_blkcg, ssg_blkg,
-				blkg->q->queue_hw_ctx[0]->sched_tags);
+				((struct blk_mq_hw_ctx *)xa_load(&blkg->q->hctx_table, 0))->sched_tags);
 	}
 	spin_unlock_irq(&blkcg->lock);
 

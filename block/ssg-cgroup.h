@@ -2,6 +2,7 @@
 #ifndef SSG_CGROUP_H
 #define SSG_CGROUP_H
 #include <linux/blk-cgroup.h>
+#include "blk-cgroup.h"
 
 #if IS_ENABLED(CONFIG_MQ_IOSCHED_SSG_CGROUP)
 struct ssg_blkcg {

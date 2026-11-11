@@ -11,7 +11,7 @@
 #include <linux/fs.h>
 #include <linux/blkdev.h>
 #include <linux/blk-mq.h>
-#include <linux/elevator.h>
+#include "elevator.h"
 #include <linux/bio.h>
 #include <linux/module.h>
 #include <linux/slab.h>
@@ -25,8 +25,8 @@
 #include "blk.h"
 #include "blk-mq.h"
 #include "blk-mq-debugfs.h"
-#include "blk-mq-tag.h"
 #include "blk-mq-sched.h"
+#include "blk-cgroup.h"
 #include "ssg-cgroup.h"
 
 /* 6.12: zone write plugging replaced zone write locking */
@@ -577,7 +577,7 @@ static int ssg_init_queue(struct request_queue *q, struct elevator_type *e)
 	if (!eq)
 		return -ENOMEM;
 
-	ssg = kzalloc_node(sizeof(*ssg), GFP_KERNEL, q->node);
+	ssg = kzalloc_node(sizeof(*ssg), GFP_KERNEL, NUMA_NO_NODE);
 	if (!ssg) {
 		kobject_put(&eq->kobj);
 		return -ENOMEM;
@@ -741,7 +741,7 @@ static void ssg_prepare_request(struct request *rq)
 		rqi->tgid = task_tgid_nr(current->group_leader);
 
 		rcu_read_lock();
-		rqi->blkg = blkg_lookup(css_to_blkcg(blkcg_css()), rq->q);
+		rqi->blkg = blkg_lookup(css_to_blkcg(task_css(current, io_cgrp_id)), rq->q);
 		ssg_blkcg_inc_rq(rqi->blkg);
 		rcu_read_unlock();
 	}
